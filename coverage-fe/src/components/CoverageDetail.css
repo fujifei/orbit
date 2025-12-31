@@ -1,0 +1,189 @@
+.coverage-detail-container {
+  padding: 8px 4px;
+  background: #f0f2f5;
+  min-height: 100vh;
+  max-width: 100%;
+  width: 100%;
+}
+
+/* Card 样式优化 */
+.coverage-detail-container .ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: none;
+  margin: 0;
+}
+
+.coverage-detail-container .ant-card-body {
+  padding: 12px 8px;
+}
+
+/* 减少卡片头部内边距 */
+.coverage-detail-container .ant-card-head {
+  padding: 0 12px;
+  min-height: 40px;
+}
+
+.coverage-detail-container .ant-card-head-title {
+  padding: 8px 0;
+}
+
+/* 标题样式 */
+.coverage-detail-container .ant-typography h3,
+.coverage-detail-container .ant-typography h4 {
+  color: #262626;
+  font-weight: 600;
+}
+
+/* 代码编辑器容器 */
+.editor-container {
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  min-height: 400px;
+}
+
+/* Monaco Editor 装饰样式 */
+.coverage-decoration-red {
+  background-color: rgba(244, 67, 54, 0.2) !important;
+}
+
+.coverage-decoration-green {
+  background-color: rgba(76, 175, 80, 0.2) !important;
+}
+
+.coverage-gutter-red {
+  background-color: #f44336 !important;
+  width: 4px !important;
+}
+
+.coverage-gutter-green {
+  background-color: #4caf50 !important;
+  width: 4px !important;
+}
+
+/* 图例颜色 */
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.legend-color.red {
+  background-color: rgba(244, 67, 54, 0.3);
+  border: 2px solid #f44336;
+}
+
+.legend-color.green {
+  background-color: rgba(76, 175, 80, 0.3);
+  border: 2px solid #4caf50;
+}
+
+/* 表格行样式 */
+.coverage-detail-container .ant-table-tbody > tr.uncovered-row {
+  background-color: rgba(244, 67, 54, 0.05);
+}
+
+.coverage-detail-container .ant-table-tbody > tr.covered-row {
+  background-color: rgba(76, 175, 80, 0.05);
+}
+
+.coverage-detail-container .ant-table-tbody > tr:hover {
+  background-color: rgba(0, 0, 0, 0.02) !important;
+}
+
+/* Tree 组件样式优化 */
+.coverage-detail-container .ant-tree {
+  background: transparent;
+}
+
+.coverage-detail-container .ant-tree-node-selected {
+  background-color: #e6f7ff !important;
+}
+
+.coverage-detail-container .ant-tree-node-content-wrapper:hover {
+  background-color: #f5f5f5;
+}
+
+/* 统计卡片样式 */
+.coverage-detail-container .ant-statistic-title {
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
+.coverage-detail-container .ant-statistic-content {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* 描述列表样式 */
+.coverage-detail-container .ant-descriptions-item-label {
+  font-weight: 500;
+  color: #595959;
+}
+
+/* 响应式布局 */
+@media (max-width: 768px) {
+  .coverage-detail-container {
+    padding: 8px;
+  }
+  
+  .coverage-detail-container .ant-card-body {
+    padding: 12px;
+  }
+  
+  .coverage-detail-container .ant-card-head {
+    padding: 0 12px;
+  }
+  
+  .editor-container {
+    height: 400px !important;
+  }
+}
+
+/* 确保代码编辑器在小屏幕上正常显示 */
+.editor-container .monaco-editor {
+  border-radius: 6px;
+}
+
+/* 按钮样式优化 */
+.coverage-detail-container .ant-btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+/* Tag 样式优化 */
+.coverage-detail-container .ant-tag {
+  border-radius: 4px;
+  font-weight: 500;
+  padding: 2px 8px;
+}
+
+/* 空状态样式 */
+.coverage-detail-container .ant-empty {
+  margin: 40px 0;
+}
+
+/* 分隔线样式 */
+.coverage-detail-container .ant-divider {
+  margin: 8px 0;
+}
+
+/* 减少 Space 组件间距 */
+.coverage-detail-container .ant-space-vertical > .ant-space-item {
+  margin-bottom: 12px;
+}
+
+.coverage-detail-container .ant-space-vertical > .ant-space-item:last-child {
+  margin-bottom: 0;
+}
+
+/* 卡片标题样式 */
+.coverage-detail-container .ant-card-head-title {
+  font-weight: 600;
+  color: #262626;
+}

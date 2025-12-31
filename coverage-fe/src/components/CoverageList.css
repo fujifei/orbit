@@ -1,0 +1,163 @@
+.coverage-list-container {
+  padding: 0;
+  background: #f0f2f5;
+  min-height: 100vh;
+  max-width: 100%;
+  width: 100%;
+}
+
+/* Layout 样式 */
+.coverage-list-container .ant-layout {
+  background: #f0f2f5;
+}
+
+.coverage-list-container .ant-layout-sider {
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+  min-height: calc(100vh - 64px);
+  overflow: auto;
+}
+
+.coverage-list-container .ant-layout-content {
+  min-height: calc(100vh - 64px);
+}
+
+.coverage-list-container .ant-menu {
+  background: #fff;
+  border-right: none;
+}
+
+.coverage-list-container .ant-menu-item-selected {
+  background-color: #e6f7ff !important;
+  color: #1890ff !important;
+}
+
+.coverage-list-container .ant-menu-item:hover {
+  background-color: #f5f5f5;
+}
+
+.coverage-list-container .ant-menu-submenu-title:hover {
+  background-color: #f5f5f5;
+}
+
+.coverage-list-container .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: #1890ff;
+}
+
+/* 响应式：小屏幕时菜单收起 */
+@media (max-width: 768px) {
+  .coverage-list-container .ant-layout-sider {
+    position: relative;
+    height: auto;
+  }
+  
+  .coverage-list-container .ant-layout-content {
+    margin-left: 0;
+  }
+}
+
+/* 覆盖 antd Card 样式，使其更简洁高端 */
+.coverage-list-container .ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: none;
+  margin: 0;
+}
+
+.coverage-list-container .ant-card-body {
+  padding: 12px 8px;
+}
+
+/* 搜索表单卡片样式 */
+.coverage-list-container .ant-card-small {
+  border: 1px solid #e8e8e8;
+  background: #fafafa;
+}
+
+/* 表格样式优化 */
+.coverage-list-container .ant-table {
+  font-size: 14px;
+}
+
+.coverage-list-container .ant-table-thead > tr > th {
+  background: #fafafa;
+  font-weight: 600;
+  color: #262626;
+  border-bottom: 2px solid #e8e8e8;
+}
+
+.coverage-list-container .ant-table-tbody > tr:hover > td {
+  background: #f5f5f5;
+}
+
+.coverage-list-container .ant-table-tbody > tr > td {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+/* 标题样式 */
+.coverage-list-container .ant-typography h3 {
+  color: #262626;
+  font-weight: 600;
+}
+
+/* 按钮样式优化 */
+.coverage-list-container .ant-btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+/* 表单样式优化 */
+.coverage-list-container .ant-form-item-label > label {
+  font-weight: 500;
+  color: #595959;
+}
+
+.coverage-list-container .ant-input,
+.coverage-list-container .ant-picker {
+  border-radius: 6px;
+}
+
+/* 标签样式 */
+.coverage-list-container .ant-tag {
+  border-radius: 4px;
+  font-weight: 500;
+  padding: 2px 8px;
+}
+
+/* 减少 Space 组件间距 */
+.coverage-list-container .ant-space-vertical > .ant-space-item {
+  margin-bottom: 12px;
+}
+
+.coverage-list-container .ant-space-vertical > .ant-space-item:last-child {
+  margin-bottom: 0;
+}
+
+/* 响应式布局优化 */
+@media (max-width: 768px) {
+  .coverage-list-container {
+    padding: 8px;
+  }
+  
+  .coverage-list-container .ant-card-body {
+    padding: 12px;
+  }
+  
+  .coverage-list-container .ant-table {
+    font-size: 12px;
+  }
+}
+
+/* 确保表格在小屏幕上可以横向滚动 */
+.coverage-list-container .ant-table-wrapper {
+  overflow-x: auto;
+}
+
+/* 链接样式 */
+.coverage-list-container a {
+  text-decoration: none;
+}
+
+.coverage-list-container .ant-btn-link {
+  padding: 0;
+  height: auto;
+}
