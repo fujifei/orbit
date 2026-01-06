@@ -52,6 +52,8 @@ def connect_rabbitmq() -> pika.BlockingConnection:
     """连接RabbitMQ"""
     try:
         parameters = pika.URLParameters(RABBITMQ_URL)
+        # 配置心跳超时为300秒（5分钟），避免长时间无消息时连接断开
+        parameters.heartbeat = 300
         connection = pika.BlockingConnection(parameters)
         return connection
     except Exception as e:
@@ -233,8 +235,25 @@ def main():
         logger.error(f"Error in consumer: {e}")
         raise
     finally:
-        channel.close()
-        connection.close()
+        # 安全关闭channel和connection
+        # 使用try-except避免在channel/connection已关闭时再次关闭导致的错误
+        try:
+            if channel:
+                channel.close()
+        except (pika.exceptions.ChannelWrongStateError, AttributeError) as e:
+            # Channel已经关闭，忽略此错误
+            logger.debug(f"Channel already closed: {e}")
+        except Exception as e:
+            logger.warning(f"Error closing channel: {e}")
+        
+        try:
+            if connection:
+                connection.close()
+        except (pika.exceptions.ConnectionClosed, AttributeError) as e:
+            # Connection已经关闭，忽略此错误
+            logger.debug(f"Connection already closed: {e}")
+        except Exception as e:
+            logger.warning(f"Error closing connection: {e}")
 
 
 if __name__ == '__main__':

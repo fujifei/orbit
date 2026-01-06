@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import {
   Layout,
@@ -35,11 +35,34 @@ const { RangePicker } = DatePicker
 const { Title } = Typography
 
 function CoverageList() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
   const [form] = Form.useForm()
+  // 从URL参数读取语言，如果没有则默认为'go'
   const [selectedLanguage, setSelectedLanguage] = useState('go')
   const [diffCoverageData, setDiffCoverageData] = useState({}) // 存储增量覆盖率数据
+
+  // 初始化时从URL参数读取语言，如果没有则设置默认值到URL
+  useEffect(() => {
+    const lang = searchParams.get('lang')
+    if (lang && ['go', 'java', 'python'].includes(lang)) {
+      setSelectedLanguage(lang)
+    } else {
+      // 如果URL中没有lang参数，设置默认值'go'到URL
+      setSearchParams({ lang: 'go' }, { replace: true })
+      setSelectedLanguage('go')
+    }
+  }, []) // 只在组件挂载时执行一次
+
+  // 当URL参数变化时，更新selectedLanguage（排除初始化时的设置）
+  useEffect(() => {
+    const lang = searchParams.get('lang')
+    if (lang && ['go', 'java', 'python'].includes(lang) && lang !== selectedLanguage) {
+      setSelectedLanguage(lang)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     fetchCoverageReports()
@@ -247,7 +270,7 @@ function CoverageList() {
           width: 60,
           align: 'center',
           render: (_, record) => (
-            <Link to={`/detail/${record.id}`}>
+            <Link to={`/detail/${record.id}?lang=${selectedLanguage}`}>
               <Button 
                 type="link" 
                 icon={<EyeOutlined />} 
@@ -273,7 +296,7 @@ function CoverageList() {
               return <span style={{ color: '#999' }}>-</span>
             }
             return (
-              <Link to={`/diff/${record.id}`}>
+              <Link to={`/diff/${record.id}?lang=${selectedLanguage}`}>
                 <span style={{ fontWeight: 500, color: '#1890ff', cursor: 'pointer' }}>
                   {diffData.new_covered_lines || 0}
                 </span>
@@ -292,7 +315,7 @@ function CoverageList() {
               return <span style={{ color: '#999' }}>-</span>
             }
             return (
-              <Link to={`/diff/${record.id}`}>
+              <Link to={`/diff/${record.id}?lang=${selectedLanguage}`}>
                 <span style={{ fontWeight: 500, color: '#1890ff', cursor: 'pointer' }}>
                   {diffData.total_new_lines || 0}
                 </span>
@@ -312,7 +335,7 @@ function CoverageList() {
             }
             const rate = diffData.incremental_coverage_rate || 0
             return (
-              <Link to={`/diff/${record.id}`}>
+              <Link to={`/diff/${record.id}?lang=${selectedLanguage}`}>
                 {getCoverageTag(rate)}
               </Link>
             )
@@ -324,7 +347,7 @@ function CoverageList() {
           width: 60,
           align: 'center',
           render: (_, record) => (
-            <Link to={`/diff/${record.id}`}>
+            <Link to={`/diff/${record.id}?lang=${selectedLanguage}`}>
               <Button 
                 type="link" 
                 icon={<EyeOutlined />} 
@@ -346,7 +369,9 @@ function CoverageList() {
       return
     }
     
+    // 更新URL参数和状态
     setSelectedLanguage(key)
+    setSearchParams({ lang: key })
     // 切换语言时重新加载数据
     fetchCoverageReports({})
   }
@@ -360,8 +385,8 @@ function CoverageList() {
       // JAVA 语言：coverage_format 为 'java' 或 'jacoco'
       return report.coverage_format && (report.coverage_format.toLowerCase() === 'java' || report.coverage_format.toLowerCase() === 'jacoco')
     } else if (selectedLanguage === 'python') {
-      // Python 语言：coverage_format 为 'python' 或 'coverage'
-      return report.coverage_format && (report.coverage_format.toLowerCase() === 'python' || report.coverage_format.toLowerCase() === 'coverage')
+      // Python 语言：coverage_format 为 'python'、'coverage' 或 'pca'
+      return report.coverage_format && (report.coverage_format.toLowerCase() === 'python' || report.coverage_format.toLowerCase() === 'coverage' || report.coverage_format.toLowerCase() === 'pca')
     }
     return true
   })

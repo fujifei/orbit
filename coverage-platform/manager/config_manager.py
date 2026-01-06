@@ -36,12 +36,13 @@ def extract_repo_name(repo_url: str) -> str:
     return ''
 
 
-def get_all_configs(repo_name: Optional[str] = None) -> Dict[str, Any]:
+def get_all_configs(repo_name: Optional[str] = None, repo_type: Optional[int] = None) -> Dict[str, Any]:
     """
     获取所有仓库配置列表
     
     参数:
         repo_name: 仓库名称（可选，模糊搜索）
+        repo_type: 仓库类型（可选，1=go, 2=python, 3=java）
     
     返回:
         {
@@ -58,6 +59,10 @@ def get_all_configs(repo_name: Optional[str] = None) -> Dict[str, Any]:
         # 支持按仓库名称模糊搜索
         if repo_name:
             query = query.filter(CoverageConfig.repo_name.like(f'%{repo_name}%'))
+        
+        # 支持按仓库类型过滤
+        if repo_type is not None:
+            query = query.filter(CoverageConfig.repo_type == repo_type)
         
         # 按创建时间倒序排列
         configs = query.order_by(CoverageConfig.created_at.desc()).all()
@@ -132,7 +137,8 @@ def create_config(
     repo_id: str,
     base_branch: str = 'master',
     exclude_dirs: str = '',
-    exclude_files: str = ''
+    exclude_files: str = '',
+    repo_type: int = 1
 ) -> Dict[str, Any]:
     """
     创建仓库配置
@@ -143,6 +149,7 @@ def create_config(
         base_branch: 基准分支（默认 master）
         exclude_dirs: 排除的目录（分号分隔）
         exclude_files: 排除的文件（分号分隔）
+        repo_type: 仓库类型（默认 1，1=go, 2=python, 3=java）
     
     返回:
         创建的配置字典
@@ -160,6 +167,10 @@ def create_config(
         
         if not repo_url or not repo_id:
             raise ValueError('Missing repo_url or repo_id')
+        
+        # 验证 repo_type 值
+        if repo_type not in [1, 2, 3]:
+            raise ValueError('Invalid repo_type, must be 1 (go), 2 (python), or 3 (java)')
         
         # 从 repo_url 提取 repo_name
         repo_name = extract_repo_name(repo_url)
@@ -182,6 +193,7 @@ def create_config(
             repo_id=repo_id,
             repo_name=repo_name,
             repo_url=repo_url,
+            repo_type=repo_type,
             base_branch=base_branch,
             exclude_dirs=exclude_dirs,
             exclude_files=exclude_files,
@@ -192,7 +204,7 @@ def create_config(
         db.add(config)
         db.commit()
         
-        logger.info(f"Created config for repo_id={repo_id}, repo_name={repo_name}")
+        logger.info(f"Created config for repo_id={repo_id}, repo_name={repo_name}, repo_type={repo_type}")
         
         return config.to_dict()
     except Exception as e:

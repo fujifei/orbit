@@ -293,10 +293,18 @@ def get_coverage_file_detail(file_id):
         # 获取文件统计摘要（包含statements信息）
         file_summary = get_file_summary(file)
         
-        # 查询该文件的所有ranges
+        # 查询该文件的所有ranges（按start_line和start_col排序以确保一致性）
         ranges = db.query(CoverageRange).filter(
             CoverageRange.file_id == file.id
-        ).all()
+        ).order_by(CoverageRange.start_line, CoverageRange.start_col).all()
+        
+        # 记录查询到的ranges数量，用于调试
+        logger.debug(f"Querying ranges for file_id={file_id}, found {len(ranges)} ranges")
+        
+        # 检查22-26行的ranges（用于调试）
+        ranges_22_26 = [r for r in ranges if r.start_line <= 26 and r.end_line >= 22]
+        if ranges_22_26:
+            logger.debug(f"Found {len(ranges_22_26)} ranges covering lines 22-26: {[(r.start_line, r.end_line, r.hit) for r in ranges_22_26]}")
         
         # 返回符合前端要求的格式，包含statements统计信息
         return jsonify({
@@ -564,11 +572,21 @@ def get_all_configs():
     
     查询参数:
         repo_name: 仓库名称（可选，模糊搜索）
-        coverage_format: 覆盖率格式（可选，如 'goc', 'jacoco', 'coverage'）
+        repo_type: 仓库类型（可选，1=go, 2=python, 3=java）
     """
     try:
         repo_name = request.args.get('repo_name')
-        result = get_all_configs_logic(repo_name=repo_name)
+        repo_type = request.args.get('repo_type')
+        
+        # 转换 repo_type 为整数（如果提供）
+        repo_type_int = None
+        if repo_type is not None:
+            try:
+                repo_type_int = int(repo_type)
+            except ValueError:
+                return jsonify({'error': 'Invalid repo_type, must be an integer'}), 400
+        
+        result = get_all_configs_logic(repo_name=repo_name, repo_type=repo_type_int)
         return jsonify(result), 200
     except Exception as e:
         logger.error(f"Error getting configs: {e}")
@@ -604,12 +622,15 @@ def create_config():
         {
             "repo_url": "https://github.com/fujifei/tuna.git",
             "repo_id": "xxxxx",
+            "repo_type": 1,
             "base_branch": "master",
             "exclude_dirs": "cmd/;config/",
             "exclude_files": "*._test.go;active_test.go"
         }
     
-    注意: repo_name 会自动从 repo_url 中提取
+    注意: 
+        - repo_name 会自动从 repo_url 中提取
+        - repo_type: 1=go语言, 2=python语言, 3=java语言（默认1）
     """
     try:
         data = request.get_json()
@@ -618,16 +639,22 @@ def create_config():
         
         repo_url = data.get('repo_url', '')
         repo_id = data.get('repo_id', '')
+        repo_type = data.get('repo_type', 1)  # 默认值为1（go语言）
         base_branch = data.get('base_branch', 'master')
         exclude_dirs = data.get('exclude_dirs', '')
         exclude_files = data.get('exclude_files', '')
+        
+        # 验证 repo_type
+        if repo_type not in [1, 2, 3]:
+            return jsonify({'error': 'Invalid repo_type, must be 1 (go), 2 (python), or 3 (java)'}), 400
         
         result = create_config_logic(
             repo_url=repo_url,
             repo_id=repo_id,
             base_branch=base_branch,
             exclude_dirs=exclude_dirs,
-            exclude_files=exclude_files
+            exclude_files=exclude_files,
+            repo_type=repo_type
         )
         
         return jsonify({

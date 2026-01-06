@@ -172,6 +172,20 @@ def parse_goc_coverage(raw: str) -> Dict[str, List[Dict]]:
     return result
 
 
+def parse_pca_coverage(raw: str) -> Dict[str, List[Dict]]:
+    """
+    解析pca格式的覆盖率数据（Python覆盖率）
+    pca格式与goc格式相同: file.py:startLine.startCol,endLine.endCol statements count
+    示例: file.py:10.0,15.0 6 1
+    含义: <file>:<startLine>.<startCol>,<endLine>.<endCol> <statements> <count>
+    - statements: 该代码块包含的statement数
+    - count: 执行次数（mode: count）
+    注意: Python是行级覆盖，所以col通常为0
+    """
+    # pca格式与goc格式完全相同，直接复用goc的解析逻辑
+    return parse_goc_coverage(raw)
+
+
 def process_coverage_report(msg: CoverageReportMessage) -> None:
     """
     处理覆盖率报告
@@ -261,6 +275,27 @@ def process_coverage_report(msg: CoverageReportMessage) -> None:
         coverage_format = msg.coverage.get('format', 'goc')
         if coverage_format == 'goc':
             try:
+                file_coverage = parse_goc_coverage(msg.coverage.get('raw', ''))
+            except Exception as e:
+                update_now = int(time.time() * 1000)
+                report.status = 'failed'
+                report.error_message = str(e)
+                report.updated_at = update_now
+                db.commit()
+                raise
+        elif coverage_format == 'pca':
+            try:
+                file_coverage = parse_pca_coverage(msg.coverage.get('raw', ''))
+            except Exception as e:
+                update_now = int(time.time() * 1000)
+                report.status = 'failed'
+                report.error_message = str(e)
+                report.updated_at = update_now
+                db.commit()
+                raise
+        elif coverage_format == 'jacoco':
+            try:
+                # jacoco格式与goc格式相同，直接复用goc的解析逻辑
                 file_coverage = parse_goc_coverage(msg.coverage.get('raw', ''))
             except Exception as e:
                 update_now = int(time.time() * 1000)

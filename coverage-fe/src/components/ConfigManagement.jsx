@@ -46,10 +46,21 @@ function ConfigManagement({ language }) {
     fetchConfigs()
   }, [language])
 
+  // 根据语言获取对应的 repo_type 值
+  const getRepoType = (lang) => {
+    const typeMap = {
+      'go': 1,
+      'python': 2,
+      'java': 3
+    }
+    return typeMap[lang] || 1
+  }
+
   const fetchConfigs = async () => {
     try {
       setLoading(true)
-      const url = buildApiUrl(API_ENDPOINTS.CONFIGS)
+      const repoType = getRepoType(language)
+      const url = buildApiUrl(`${API_ENDPOINTS.CONFIGS}?repo_type=${repoType}`)
       const response = await axios.get(url)
       setConfigs(response.data.data || [])
     } catch (err) {
@@ -97,9 +108,14 @@ function ConfigManagement({ language }) {
       const values = await form.validateFields()
       
       if (modalType === 'create') {
-        // 创建
+        // 创建时添加 repo_type 字段
+        const repoType = getRepoType(language)
+        const createData = {
+          ...values,
+          repo_type: repoType
+        }
         const url = buildApiUrl(API_ENDPOINTS.CONFIGS)
-        await axios.post(url, values)
+        await axios.post(url, createData)
         message.success('创建成功')
       } else {
         // 编辑

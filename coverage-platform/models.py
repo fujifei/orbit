@@ -147,6 +147,7 @@ class CoverageConfig(Base):
     repo_id = Column(String(64), nullable=False, unique=True, index=True)
     repo_name = Column(String(255), nullable=False, default='', index=True)  # 仓库名称
     repo_url = Column(String(500), nullable=False, default='')  # 仓库链接
+    repo_type = Column(Integer, nullable=False, default=1, index=True)  # 仓库类型：1=go, 2=python, 3=java
     base_branch = Column(String(255), nullable=False, default='master')
     exclude_dirs = Column(Text)  # 排除目录，分号分隔
     exclude_files = Column(Text)  # 排除文件后缀，分号分隔
@@ -160,6 +161,7 @@ class CoverageConfig(Base):
             'repo_id': self.repo_id,
             'repo_name': self.repo_name,
             'repo_url': self.repo_url,
+            'repo_type': self.repo_type,
             'base_branch': self.base_branch,
             'exclude_dirs': self.exclude_dirs or '',
             'exclude_files': self.exclude_files or '',

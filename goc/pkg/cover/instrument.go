@@ -46,6 +46,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -58,8 +60,10 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -71,9 +75,11 @@ import (
 
 // Global variables for coverage reporting
 var (
-	gocReportURL  = {{.RabbitMQURL | printf "%q"}}  // HTTP endpoint for coverage reporting (RabbitMQ HTTP API or custom webhook)
-	gocGitInfo    *gocGitInfoStruct
-	gocCIInfo     *gocCIMetadataStruct
+	gocReportURL      = {{.RabbitMQURL | printf "%q"}}  // HTTP endpoint for coverage reporting (RabbitMQ HTTP API or custom webhook)
+	gocGitInfo        *gocGitInfoStruct
+	gocCIInfo         *gocCIMetadataStruct
+	gocLastFingerprint string                    // Last coverage fingerprint for incremental check
+	gocFingerprintMutex sync.RWMutex             // Mutex for fingerprint access
 )
 
 // CoverageReportMessage represents the structured coverage data for RabbitMQ
@@ -173,6 +179,197 @@ func clearFileCoverGoc(counter []uint32) {
 	}
 }
 
+// extractCoveredLinesFromGocData extracts covered lines from goc coverage data format
+// Returns map[filename]set of covered line numbers
+func extractCoveredLinesFromGocData(coverageData string) map[string]map[int]bool {
+	coveredLines := make(map[string]map[int]bool)
+	
+	scanner := bufio.NewScanner(strings.NewReader(coverageData))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip mode line and empty lines
+		if line == "" || strings.HasPrefix(line, "mode:") {
+			continue
+		}
+		
+		// Parse format: filename:line0.col0,line1.col1 stmts count
+		// Example: file.go:10.0,15.0 6 1
+		parts := strings.Fields(line)
+		if len(parts) < 3 {
+			continue
+		}
+		
+		// Parse filename and line range
+		filePart := parts[0]
+		colonIdx := strings.LastIndex(filePart, ":")
+		if colonIdx == -1 {
+			continue
+		}
+		
+		filename := filePart[:colonIdx]
+		lineRange := filePart[colonIdx+1:]
+		
+		// Parse line range: "10.0,15.0" -> line0=10, line1=15
+		commaIdx := strings.Index(lineRange, ",")
+		if commaIdx == -1 {
+			continue
+		}
+		
+		line0Str := lineRange[:commaIdx]
+		line1Str := lineRange[commaIdx+1:]
+		
+		// Extract line numbers (before the dot)
+		line0DotIdx := strings.Index(line0Str, ".")
+		line1DotIdx := strings.Index(line1Str, ".")
+		
+		var line0, line1 int
+		var err error
+		if line0DotIdx != -1 {
+			line0, err = strconv.Atoi(line0Str[:line0DotIdx])
+		} else {
+			line0, err = strconv.Atoi(line0Str)
+		}
+		if err != nil {
+			continue
+		}
+		
+		if line1DotIdx != -1 {
+			line1, err = strconv.Atoi(line1Str[:line1DotIdx])
+		} else {
+			line1, err = strconv.Atoi(line1Str)
+		}
+		if err != nil {
+			continue
+		}
+		
+		// Parse count (last field)
+		count, err := strconv.Atoi(parts[len(parts)-1])
+		if err != nil {
+			continue
+		}
+		
+		// Only include covered lines (count > 0)
+		if count > 0 {
+			if coveredLines[filename] == nil {
+				coveredLines[filename] = make(map[int]bool)
+			}
+			// Add all lines in the range [line0, line1]
+			for lineNum := line0; lineNum <= line1; lineNum++ {
+				coveredLines[filename][lineNum] = true
+			}
+		}
+	}
+	
+	return coveredLines
+}
+
+// compressToRanges compresses line numbers to ranges
+// Returns map[filename][]{start, end}
+func compressToRanges(coveredLines map[string]map[int]bool) map[string][][2]int {
+	ranges := make(map[string][][2]int)
+	
+	for filename, lines := range coveredLines {
+		if len(lines) == 0 {
+			continue
+		}
+		
+		// Convert map to sorted slice
+		sortedLines := make([]int, 0, len(lines))
+		for line := range lines {
+			sortedLines = append(sortedLines, line)
+		}
+		sort.Ints(sortedLines)
+		
+		// Compress consecutive lines into ranges
+		fileRanges := [][2]int{}
+		if len(sortedLines) > 0 {
+			start := sortedLines[0]
+			end := sortedLines[0]
+			
+			for i := 1; i < len(sortedLines); i++ {
+				if sortedLines[i] == end+1 {
+					// Consecutive, extend range
+					end = sortedLines[i]
+				} else {
+					// Not consecutive, save current range and start new one
+					fileRanges = append(fileRanges, [2]int{start, end})
+					start = sortedLines[i]
+					end = sortedLines[i]
+				}
+			}
+			// Save last range
+			fileRanges = append(fileRanges, [2]int{start, end})
+		}
+		
+		ranges[filename] = fileRanges
+	}
+	
+	return ranges
+}
+
+// calculateCoverageFingerprint calculates SHA256 fingerprint from coverage ranges
+func calculateCoverageFingerprint(ranges map[string][][2]int) string {
+	// Build string for hashing
+	// Format: filename:start-end,start-end;filename:start-end,...
+	parts := make([]string, 0, len(ranges))
+	
+	// Sort filenames for consistent ordering
+	filenames := make([]string, 0, len(ranges))
+	for filename := range ranges {
+		filenames = append(filenames, filename)
+	}
+	sort.Strings(filenames)
+	
+	for _, filename := range filenames {
+		fileRanges := ranges[filename]
+		if len(fileRanges) == 0 {
+			continue
+		}
+		
+		// Build range strings
+		rangeStrs := make([]string, 0, len(fileRanges))
+		for _, r := range fileRanges {
+			rangeStrs = append(rangeStrs, fmt.Sprintf("%d-%d", r[0], r[1]))
+		}
+		
+		parts = append(parts, fmt.Sprintf("%s:%s", filename, strings.Join(rangeStrs, ",")))
+	}
+	
+	content := strings.Join(parts, ";")
+	
+	// Calculate SHA256 hash
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
+}
+
+// getFingerprintFile returns the path to the fingerprint file
+func getFingerprintFile() string {
+	// Use executable name + "_coverage_fingerprint"
+	execPath := os.Args[0]
+	execName := filepath.Base(execPath)
+	return execName + "_coverage_fingerprint"
+}
+
+// loadFingerprint loads the last fingerprint from file
+func loadFingerprint() string {
+	fingerprintFile := getFingerprintFile()
+	data, err := ioutil.ReadFile(fingerprintFile)
+	if err != nil {
+		// File doesn't exist or can't be read, return empty string
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// saveFingerprint saves the fingerprint to file
+func saveFingerprint(fingerprint string) {
+	fingerprintFile := getFingerprintFile()
+	err := ioutil.WriteFile(fingerprintFile, []byte(fingerprint), 0644)
+	if err != nil {
+		_log.Printf("[goc][WARN] Failed to save fingerprint to %s: %v", fingerprintFile, err)
+	}
+}
+
 // collectAndReportCoverageGoc collects coverage data and reports it to MQ
 func collectAndReportCoverageGoc() {
 	if gocReportURL == "" {
@@ -209,6 +406,43 @@ func collectAndReportCoverageGoc() {
 	coverageData := coverageBuffer.String()
 	_log.Printf("[goc][DEBUG] Coverage data collected: length=%d bytes, files=%d", len(coverageData), len(counters))
 
+	// Calculate coverage fingerprint for incremental check
+	coveredLines := extractCoveredLinesFromGocData(coverageData)
+	ranges := compressToRanges(coveredLines)
+	currentFingerprint := calculateCoverageFingerprint(ranges)
+	
+	// Load last fingerprint
+	gocFingerprintMutex.Lock()
+	lastFingerprint := gocLastFingerprint
+	if lastFingerprint == "" {
+		// Try to load from file
+		lastFingerprint = loadFingerprint()
+		gocLastFingerprint = lastFingerprint
+	}
+	gocFingerprintMutex.Unlock()
+	
+	_log.Printf("[goc][DEBUG] Coverage fingerprint: current=%s, last=%s", currentFingerprint, lastFingerprint)
+	
+	// Check if coverage has changed
+	if currentFingerprint == lastFingerprint && lastFingerprint != "" {
+		_log.Printf("[goc][INFO] Coverage unchanged (fingerprint match), skipping report to save resources")
+		return
+	}
+	
+	_log.Printf("[goc][INFO] Coverage changed (fingerprint mismatch), reporting to platform")
+	
+	// Ensure git info is up-to-date, especially repo_id
+	// If repo_id is empty, try to refresh git info
+	if gocGitInfo == nil || gocGitInfo.RepoID == "" {
+		_log.Printf("[goc][WARN] RepoID is empty, refreshing git info...")
+		gocGitInfo = getGitInfoGoc()
+		if gocGitInfo.RepoID == "" {
+			_log.Printf("[goc][WARN] RepoID is still empty after refresh, repo=%s", gocGitInfo.Repo)
+		} else {
+			_log.Printf("[goc][INFO] Successfully refreshed git info, repo_id=%s", gocGitInfo.RepoID)
+		}
+	}
+	
 	// Report coverage
 	report := gocCoverageReportMessageStruct{
 		Repo:      gocGitInfo.Repo,
@@ -231,6 +465,13 @@ func collectAndReportCoverageGoc() {
 		_log.Printf("[goc][WARN] Report URL was: %s", gocReportURL)
 	} else {
 		_log.Printf("[goc][INFO] Successfully published coverage report (scheduled)")
+		
+		// Update fingerprint after successful report
+		gocFingerprintMutex.Lock()
+		gocLastFingerprint = currentFingerprint
+		saveFingerprint(currentFingerprint)
+		gocFingerprintMutex.Unlock()
+		_log.Printf("[goc][DEBUG] Updated coverage fingerprint: %s", currentFingerprint)
 	}
 }
 
@@ -248,6 +489,16 @@ func registerHandlersGoc() {
 		_log.Printf("[goc][INFO] Coverage reporting enabled to: %s", gocReportURL)
 		_log.Printf("[goc][INFO] Git info: repo=%s, repo_id=%s, branch=%s, commit=%s", 
 			gocGitInfo.Repo, gocGitInfo.RepoID, gocGitInfo.Branch, gocGitInfo.Commit)
+		
+		// Load fingerprint on startup
+		gocFingerprintMutex.Lock()
+		gocLastFingerprint = loadFingerprint()
+		if gocLastFingerprint != "" {
+			_log.Printf("[goc][INFO] Loaded coverage fingerprint from file: %s", gocLastFingerprint)
+		} else {
+			_log.Printf("[goc][INFO] No previous coverage fingerprint found, will report on first collection")
+		}
+		gocFingerprintMutex.Unlock()
 		
 		// Start periodic coverage reporting (every minute)
 		go func() {
@@ -352,6 +603,17 @@ func registerHandlersGoc() {
 
 		// Report coverage if reporting URL is configured (manual trigger via HTTP endpoint)
 		if gocReportURL != "" {
+			// Ensure git info is up-to-date, especially repo_id
+			if gocGitInfo == nil || gocGitInfo.RepoID == "" {
+				_log.Printf("[goc][WARN] RepoID is empty in HTTP endpoint, refreshing git info...")
+				gocGitInfo = getGitInfoGoc()
+				if gocGitInfo.RepoID == "" {
+					_log.Printf("[goc][WARN] RepoID is still empty after refresh, repo=%s", gocGitInfo.Repo)
+				} else {
+					_log.Printf("[goc][INFO] Successfully refreshed git info, repo_id=%s", gocGitInfo.RepoID)
+				}
+			}
+			
 			report := gocCoverageReportMessageStruct{
 				Repo:      gocGitInfo.Repo,
 				RepoID:    gocGitInfo.RepoID,

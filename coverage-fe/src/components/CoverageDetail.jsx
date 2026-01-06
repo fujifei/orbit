@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import axios from 'axios'
 import {
@@ -17,13 +17,15 @@ import {
   Alert,
   Divider,
   Descriptions,
-  Empty
+  Empty,
+  Breadcrumb
 } from 'antd'
 import {
   ArrowLeftOutlined,
   FileTextOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined
+  CloseCircleOutlined,
+  HomeOutlined
 } from '@ant-design/icons'
 import { buildApiUrl, API_ENDPOINTS } from '../config/api'
 import { formatTimestamp } from '../utils/dateUtils'
@@ -31,10 +33,22 @@ import './CoverageDetail.css'
 
 const { Title, Text } = Typography
 
+// 根据coverage_format判断语言类型
+const getLanguageFromCoverageFormat = (coverageFormat) => {
+  if (!coverageFormat) return 'go' // 默认为go
+  const format = coverageFormat.toLowerCase()
+  if (format === 'goc' || format === 'go') return 'go'
+  if (format === 'java' || format === 'jacoco') return 'java'
+  if (format === 'python' || format === 'coverage' || format === 'pca') return 'python'
+  return 'go' // 默认
+}
+
 function CoverageDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [report, setReport] = useState(null)
+  const [language, setLanguage] = useState(null) // 语言类型
   const [files, setFiles] = useState([])
   const [treeData, setTreeData] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
@@ -69,7 +83,17 @@ function CoverageDetail() {
     try {
       setLoading(true)
       const response = await axios.get(buildApiUrl(API_ENDPOINTS.REPORT_DETAIL(id)))
-      setReport(response.data.report)
+      const reportData = response.data.report
+      setReport(reportData)
+      
+      // 从URL参数获取语言，如果没有则从report的coverage_format判断
+      const langFromUrl = searchParams.get('lang')
+      if (langFromUrl && ['go', 'java', 'python'].includes(langFromUrl)) {
+        setLanguage(langFromUrl)
+      } else {
+        setLanguage(getLanguageFromCoverageFormat(reportData.coverage_format))
+      }
+      
       setError(null)
     } catch (err) {
       setError(err.message || '获取报告详情失败')
@@ -415,7 +439,7 @@ function CoverageDetail() {
             type="error"
             showIcon
             action={
-              <Button onClick={() => navigate('/')}>
+              <Button onClick={() => navigate(`/?lang=${language || 'go'}`)}>
                 返回列表
               </Button>
             }
@@ -445,10 +469,25 @@ function CoverageDetail() {
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           {/* 头部信息 */}
           <div>
+            {/* 面包屑导航 */}
+            <Breadcrumb style={{ marginBottom: 12 }}>
+              <Breadcrumb.Item>
+                <Link to="/">
+                  <HomeOutlined /> 首页
+                </Link>
+              </Breadcrumb.Item>
+              <Breadcrumb.Item>
+                <Link to={`/?lang=${language || 'go'}`}>
+                  Data - {language === 'java' ? 'JAVA' : language === 'python' ? 'Python' : 'GO'}
+                </Link>
+              </Breadcrumb.Item>
+              <Breadcrumb.Item>覆盖率详情</Breadcrumb.Item>
+            </Breadcrumb>
+            
             <Space style={{ marginBottom: 12 }}>
               <Button
                 icon={<ArrowLeftOutlined />}
-                onClick={() => navigate('/')}
+                onClick={() => navigate(`/?lang=${language || 'go'}`)}
               >
                 返回列表
               </Button>
