@@ -1,16 +1,15 @@
 # Backend
-backend/coverage.db
-backend/coverage.db-journal
-backend/*.db
-backend/*.db-journal
+coverage-platform/repos/*
+coverage-platform/.pids/*
+coverage-platform/target/*
 
 # Frontend
-frontend/node_modules/
-frontend/build/
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
+coverage-fe/node_modules/
+coverage-fe/build/
+coverage-fe/.env.local
+coverage-fe/.env.development.local
+coverage-fe/.env.test.local
+coverage-fe/.env.production.local
 
 # IDE
 .idea/
