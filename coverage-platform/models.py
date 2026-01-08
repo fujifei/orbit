@@ -7,14 +7,22 @@
 """
 
 import logging
+import time
 from sqlalchemy import create_engine, Column, Integer, String, Text, BigInteger, Index, text, func
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 from sqlalchemy.pool import QueuePool
+from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger(__name__)
 
-# 数据库配置
-DATABASE_DSN = "mysql+pymysql://agile:agile@127.0.0.1:6666/coverage_db?charset=utf8mb4"
+# 数据库配置（支持环境变量）
+import os
+DB_HOST = os.getenv('DB_HOST', 'mysql')
+DB_PORT = os.getenv('DB_PORT', '3306')
+DB_USER = os.getenv('DB_USER', 'coverage')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'coverage123')
+DB_NAME = os.getenv('DB_NAME', 'coverage_db')
+DATABASE_DSN = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
 
 # 创建数据库引擎
 engine = create_engine(
@@ -181,22 +189,41 @@ def close_db_session():
 
 
 def init_db():
-    """初始化数据库连接并测试"""
-    try:
-        db = SessionLocal()
-        db.execute(text('SELECT 1'))
-        logger.info("Database connection established")
-        
-        # 测试查询表是否存在
+    """初始化数据库连接并创建表（带重试机制）"""
+    max_retries = 30  # 最大重试次数
+    retry_delay = 2   # 初始重试延迟（秒）
+    
+    for attempt in range(max_retries):
         try:
-            count = db.query(func.count(CoverageReport.id)).scalar()
-            logger.info(f"Database table 'coverage_reports' exists, current record count: {count}")
-        except Exception as e:
-            logger.warning(f"Failed to query coverage_reports table: {e}")
-            logger.warning("This might indicate the table doesn't exist or there's a connection issue")
-        finally:
-            db.close()
-    except Exception as e:
-        logger.error(f"Failed to connect to database: {e}")
-        raise
+            # 创建所有表（如果不存在）
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database tables created/verified")
+            
+            db = SessionLocal()
+            db.execute(text('SELECT 1'))
+            logger.info("Database connection established")
+            
+            # 测试查询表是否存在
+            try:
+                count = db.query(func.count(CoverageReport.id)).scalar()
+                logger.info(f"Database table 'coverage_reports' exists, current record count: {count}")
+            except Exception as e:
+                logger.warning(f"Failed to query coverage_reports table: {e}")
+                logger.warning("This might indicate the table doesn't exist or there's a connection issue")
+            finally:
+                db.close()
+            
+            # 如果成功，退出重试循环
+            return
+            
+        except (OperationalError, Exception) as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Failed to connect to database (attempt {attempt + 1}/{max_retries}): {e}")
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                # 指数退避，但最大不超过10秒
+                retry_delay = min(retry_delay * 1.5, 10)
+            else:
+                logger.error(f"Failed to connect to database after {max_retries} attempts: {e}")
+                raise
 

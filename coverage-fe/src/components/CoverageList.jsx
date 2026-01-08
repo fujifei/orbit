@@ -385,8 +385,8 @@ function CoverageList() {
       // JAVA 语言：coverage_format 为 'java' 或 'jacoco'
       return report.coverage_format && (report.coverage_format.toLowerCase() === 'java' || report.coverage_format.toLowerCase() === 'jacoco')
     } else if (selectedLanguage === 'python') {
-      // Python 语言：coverage_format 为 'python'、'coverage' 或 'pca'
-      return report.coverage_format && (report.coverage_format.toLowerCase() === 'python' || report.coverage_format.toLowerCase() === 'coverage' || report.coverage_format.toLowerCase() === 'pca')
+      // Python 语言：coverage_format 为 'python'、'coverage'、'pyca' 或 'pca'（向后兼容）
+      return report.coverage_format && (report.coverage_format.toLowerCase() === 'python' || report.coverage_format.toLowerCase() === 'coverage' || report.coverage_format.toLowerCase() === 'pyca' || report.coverage_format.toLowerCase() === 'pca')
     }
     return true
   })

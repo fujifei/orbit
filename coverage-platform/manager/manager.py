@@ -172,17 +172,17 @@ def parse_goc_coverage(raw: str) -> Dict[str, List[Dict]]:
     return result
 
 
-def parse_pca_coverage(raw: str) -> Dict[str, List[Dict]]:
+def parse_pyca_coverage(raw: str) -> Dict[str, List[Dict]]:
     """
-    解析pca格式的覆盖率数据（Python覆盖率）
-    pca格式与goc格式相同: file.py:startLine.startCol,endLine.endCol statements count
+    解析pyca格式的覆盖率数据（Python覆盖率）
+    pyca格式与goc格式相同: file.py:startLine.startCol,endLine.endCol statements count
     示例: file.py:10.0,15.0 6 1
     含义: <file>:<startLine>.<startCol>,<endLine>.<endCol> <statements> <count>
     - statements: 该代码块包含的statement数
     - count: 执行次数（mode: count）
     注意: Python是行级覆盖，所以col通常为0
     """
-    # pca格式与goc格式完全相同，直接复用goc的解析逻辑
+    # pyca格式与goc格式完全相同，直接复用goc的解析逻辑
     return parse_goc_coverage(raw)
 
 
@@ -283,9 +283,9 @@ def process_coverage_report(msg: CoverageReportMessage) -> None:
                 report.updated_at = update_now
                 db.commit()
                 raise
-        elif coverage_format == 'pca':
+        elif coverage_format == 'pyca' or coverage_format == 'pca':  # 支持向后兼容
             try:
-                file_coverage = parse_pca_coverage(msg.coverage.get('raw', ''))
+                file_coverage = parse_pyca_coverage(msg.coverage.get('raw', ''))
             except Exception as e:
                 update_now = int(time.time() * 1000)
                 report.status = 'failed'

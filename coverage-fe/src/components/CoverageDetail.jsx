@@ -39,7 +39,7 @@ const getLanguageFromCoverageFormat = (coverageFormat) => {
   const format = coverageFormat.toLowerCase()
   if (format === 'goc' || format === 'go') return 'go'
   if (format === 'java' || format === 'jacoco') return 'java'
-  if (format === 'python' || format === 'coverage' || format === 'pca') return 'python'
+  if (format === 'python' || format === 'coverage' || format === 'pyca' || format === 'pca') return 'python'
   return 'go' // 默认
 }
 

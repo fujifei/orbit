@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # MySQL数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: coverage-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: coverage_db
+      MYSQL_USER: coverage
+      MYSQL_PASSWORD: coverage123
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  # RabbitMQ消息队列服务
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: coverage-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP端口
+      - "15672:15672"  # 管理界面端口
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: coverage
+      RABBITMQ_DEFAULT_PASS: coverage123
+      RABBITMQ_DEFAULT_VHOST: /
+      TZ: Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Coverage API服务
+  coverage-api:
+    build:
+      context: ./coverage-platform
+      dockerfile: Dockerfile
+    container_name: coverage-api
+    ports:
+      - "8826:8826"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: coverage
+      DB_PASSWORD: coverage123
+      DB_NAME: coverage_db
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: coverage
+      RABBITMQ_PASSWORD: coverage123
+      TZ: Asia/Shanghai
+    volumes:
+      - ./coverage-platform/logs:/app/logs
+      - ./coverage-platform/repos:/app/repos
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: ["python3", "coverage-api/main.py"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8826/api/v1/coverage/reports?limit=1').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Coverage Consumer服务
+  coverage-consumer:
+    build:
+      context: ./coverage-platform
+      dockerfile: Dockerfile
+    container_name: coverage-consumer
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: coverage
+      DB_PASSWORD: coverage123
+      DB_NAME: coverage_db
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: coverage
+      RABBITMQ_PASSWORD: coverage123
+      TZ: Asia/Shanghai
+    volumes:
+      - ./coverage-platform/logs:/app/logs
+      - ./coverage-platform/repos:/app/repos
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      coverage-api:
+        condition: service_healthy
+    command: ["python3", "coverage-consumer/main.py"]
+    restart: unless-stopped
+
+  # 前端服务
+  coverage-fe:
+    build:
+      context: ./coverage-fe
+      dockerfile: Dockerfile
+    container_name: coverage-fe
+    ports:
+      - "3000:3000"
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      - coverage-api
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+

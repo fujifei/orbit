@@ -26,8 +26,13 @@ logger = logging.getLogger(__name__)
 MAX_RETRY_COUNT = 10  # 最大重试次数
 RETRY_HEADER_KEY = 'x-retry-count'  # 重试次数header键
 
-# RabbitMQ配置
-RABBITMQ_URL = "amqp://coverage:coverage123@localhost:5672/"
+# RabbitMQ配置（支持环境变量）
+RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'rabbitmq')
+RABBITMQ_PORT = os.getenv('RABBITMQ_PORT', '5672')
+RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'coverage')
+RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASSWORD', 'coverage123')
+RABBITMQ_VHOST = os.getenv('RABBITMQ_VHOST', '/')
+RABBITMQ_URL = os.getenv('RABBITMQ_URL', f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASSWORD}@{RABBITMQ_HOST}:{RABBITMQ_PORT}{RABBITMQ_VHOST}")
 
 
 def get_retry_count(headers: Optional[Dict]) -> int:
