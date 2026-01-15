@@ -29,7 +29,8 @@ from manager.config_manager import (
     create_config as create_config_logic,
     update_config as update_config_logic,
     delete_config as delete_config_logic,
-    set_repo_config as set_repo_config_logic
+    set_repo_config as set_repo_config_logic,
+    get_repo_id_from_url as get_repo_id_from_url_logic
 )
 import time
 import re
@@ -734,6 +735,51 @@ def delete_config(repo_id):
         return jsonify({'error': str(e)}), 404
     except Exception as e:
         logger.error(f"Error deleting config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# 根据仓库URL获取RepoID
+@app.route('/api/v1/coverage/configs/repo-id', methods=['POST'])
+def get_repo_id():
+    """
+    根据仓库URL获取RepoID
+    
+    请求体:
+        {
+            "repo_url": "https://github.com/fujifei/tuna.git"
+            或
+            "repo_url": "git@github.com:fujifei/tuna.git"
+        }
+    
+    返回:
+        {
+            "success": true,
+            "data": {
+                "repo_id": "github.com/fujifei/tuna"
+            }
+        }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Invalid request body'}), 400
+        
+        repo_url = data.get('repo_url', '')
+        if not repo_url:
+            return jsonify({'error': 'Missing repo_url'}), 400
+        
+        repo_id = get_repo_id_from_url_logic(repo_url)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'repo_id': repo_id  # 现在是整数
+            }
+        }), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error getting repo_id: {e}")
         return jsonify({'error': str(e)}), 500
 
 

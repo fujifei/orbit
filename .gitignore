@@ -25,3 +25,7 @@ Thumbs.db
 # Logs
 *.log
 
+# Environment variables (包含敏感信息，不要提交)
+.env
+coverage-platform/config/.env
+.coverage

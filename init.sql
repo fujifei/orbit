@@ -19,6 +19,19 @@ CREATE DATABASE IF NOT EXISTS `coverage_db`
 USE `coverage_db`;
 
 -- ============================================
+-- 1.1 创建用户并授权（允许从Docker网络连接）
+-- ============================================
+-- 注意：MySQL 8.0通过环境变量会自动创建用户，但可能只允许从localhost连接
+-- 这里显式创建用户并授权允许从任何主机（%）连接，以便Docker容器可以访问
+-- 使用CREATE USER IF NOT EXISTS（MySQL 8.0.11+支持）
+-- 如果使用较旧版本，可以注释掉CREATE USER行，只保留GRANT语句
+CREATE USER IF NOT EXISTS 'coverage'@'%' IDENTIFIED BY 'coverage123';
+GRANT ALL PRIVILEGES ON `coverage_db`.* TO 'coverage'@'%';
+-- 同时确保localhost用户也有权限（如果环境变量创建了该用户）
+GRANT ALL PRIVILEGES ON `coverage_db`.* TO 'coverage'@'localhost';
+FLUSH PRIVILEGES;
+
+-- ============================================
 -- 2. 创建表结构
 -- ============================================
 

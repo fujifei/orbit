@@ -1,9 +1,9 @@
 // API 配置文件
-// 统一管理 API 基础 URL，确保指向正确的后端端口（8826）
+// 统一管理 API 基础 URL
 // 
 // 配置优先级：
 // 1. 环境变量 VITE_API_BASE_URL（最高优先级）
-// 2. 开发环境：直接使用 http://localhost:8826（后端已配置 CORS，支持跨域）
+// 2. 开发环境：使用相对路径，通过 Vite 代理转发到后端（端口 8826）
 // 3. 生产环境：使用相对路径（假设前后端同域）或环境变量配置的完整 URL
 
 // 获取 API 基础 URL
@@ -18,15 +18,16 @@ const getApiBaseUrl = () => {
     return url || ''
   }
   
-  // 开发环境：直接使用后端服务的完整 URL（端口 8826）
-  // 这样可以确保浏览器直接调用正确的端口，不依赖代理
+  // 开发环境：使用相对路径，通过 Vite 代理转发到后端（端口 8826）
+  // Vite 配置了代理：/api -> http://localhost:8826
+  // 所以请求 http://localhost:3000/api/... 会被代理到 http://localhost:8826/api/...
   if (import.meta.env.DEV) {
-    return 'http://localhost:8826'
+    return ''
   }
   
   // 生产环境：默认使用相对路径（假设前后端部署在同一域名下）
   // 如果前后端部署在不同域名，必须通过环境变量 VITE_API_BASE_URL 配置
-  // 例如：VITE_API_BASE_URL=http://api.example.com 或 http://localhost:8826
+  // 例如：VITE_API_BASE_URL=http://api.example.com
   return ''
 }
 
@@ -39,7 +40,7 @@ if (import.meta.env.DEV) {
     API_BASE_URL: API_BASE_URL || '(空，使用相对路径)',
     isDev: import.meta.env.DEV,
     envVar: import.meta.env.VITE_API_BASE_URL || '(未设置)',
-    note: '开发环境：直接调用后端服务 http://localhost:8826'
+    note: '开发环境：通过 Vite 代理转发到后端 http://localhost:8826'
   })
 }
 
@@ -64,6 +65,7 @@ export const API_ENDPOINTS = {
   // 仓库配置管理（Config页面）
   CONFIGS: '/api/v1/coverage/configs',
   CONFIG_DETAIL: (repoId) => `/api/v1/coverage/configs/${repoId}`,
+  GET_REPO_ID: '/api/v1/coverage/configs/repo-id',
 }
 
 // 构建完整的 API URL
@@ -85,7 +87,7 @@ export const buildApiUrl = (endpoint) => {
       endpoint,
       baseUrl: baseUrl || '(空，使用相对路径)',
       finalUrl,
-      note: '开发环境：直接调用后端服务 http://localhost:8826'
+      note: '开发环境：通过 Vite 代理转发到后端 http://localhost:8826'
     })
   }
   

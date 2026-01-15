@@ -1,5 +1,10 @@
 version: '3.8'
 
+networks:
+  coverage-network:
+    name: coverage-network
+    driver: bridge
+
 services:
   # MySQL数据库服务
   mysql:
@@ -24,6 +29,8 @@ services:
       start_period: 30s
     restart: unless-stopped
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - coverage-network
 
   # RabbitMQ消息队列服务
   rabbitmq:
@@ -34,18 +41,15 @@ services:
       - "15672:15672"  # 管理界面端口
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     environment:
       RABBITMQ_DEFAULT_USER: coverage
       RABBITMQ_DEFAULT_PASS: coverage123
       RABBITMQ_DEFAULT_VHOST: /
       TZ: Asia/Shanghai
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
     restart: unless-stopped
+    networks:
+      - coverage-network
 
   # Coverage API服务
   coverage-api:
@@ -55,6 +59,8 @@ services:
     container_name: coverage-api
     ports:
       - "8826:8826"
+    env_file:
+      - ./coverage-platform/config/.env
     environment:
       DB_HOST: mysql
       DB_PORT: 3306
@@ -66,14 +72,19 @@ services:
       RABBITMQ_USER: coverage
       RABBITMQ_PASSWORD: coverage123
       TZ: Asia/Shanghai
+      # Git 认证 Token（可选，用于访问私有仓库或提高 API 限制）
+      # 从 coverage-platform/config/.env 文件读取，不会提交到代码仓库
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITLAB_TOKEN: ${GITLAB_TOKEN:-}
+      BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
+      GITEE_TOKEN: ${GITEE_TOKEN:-}
+      GIT_TOKEN: ${GIT_TOKEN:-}
     volumes:
       - ./coverage-platform/logs:/app/logs
       - ./coverage-platform/repos:/app/repos
     depends_on:
-      mysql:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - mysql
+      - rabbitmq
     command: ["python3", "coverage-api/main.py"]
     restart: unless-stopped
     healthcheck:
@@ -82,6 +93,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - coverage-network
 
   # Coverage Consumer服务
   coverage-consumer:
@@ -89,6 +102,8 @@ services:
       context: ./coverage-platform
       dockerfile: Dockerfile
     container_name: coverage-consumer
+    env_file:
+      - ./coverage-platform/config/.env
     environment:
       DB_HOST: mysql
       DB_PORT: 3306
@@ -100,18 +115,24 @@ services:
       RABBITMQ_USER: coverage
       RABBITMQ_PASSWORD: coverage123
       TZ: Asia/Shanghai
+      # Git 认证 Token（可选，用于访问私有仓库或提高 API 限制）
+      # 从 coverage-platform/config/.env 文件读取，不会提交到代码仓库
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITLAB_TOKEN: ${GITLAB_TOKEN:-}
+      BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
+      GITEE_TOKEN: ${GITEE_TOKEN:-}
+      GIT_TOKEN: ${GIT_TOKEN:-}
     volumes:
       - ./coverage-platform/logs:/app/logs
       - ./coverage-platform/repos:/app/repos
     depends_on:
-      mysql:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      coverage-api:
-        condition: service_healthy
+      - mysql
+      - rabbitmq
+      - coverage-api
     command: ["python3", "coverage-consumer/main.py"]
     restart: unless-stopped
+    networks:
+      - coverage-network
 
   # 前端服务
   coverage-fe:
@@ -126,6 +147,8 @@ services:
     depends_on:
       - coverage-api
     restart: unless-stopped
+    networks:
+      - coverage-network
 
 volumes:
   mysql_data:

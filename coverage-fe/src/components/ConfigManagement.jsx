@@ -41,6 +41,7 @@ function ConfigManagement({ language }) {
   const [modalType, setModalType] = useState('create') // 'create' or 'edit'
   const [currentConfig, setCurrentConfig] = useState(null)
   const [form] = Form.useForm()
+  const [loadingRepoId, setLoadingRepoId] = useState(false)
 
   useEffect(() => {
     fetchConfigs()
@@ -54,6 +55,46 @@ function ConfigManagement({ language }) {
       'java': 3
     }
     return typeMap[lang] || 1
+  }
+
+  // 根据语言获取排除文件后缀的placeholder
+  const getExcludeFilesPlaceholder = (lang) => {
+    const placeholderMap = {
+      'go': '*._test.go;active_test.go',
+      'python': '*_test.py;test_*.py',
+      'java': '*Test.java;*Tests.java'
+    }
+    return placeholderMap[lang] || '*._test.go;active_test.go'
+  }
+
+  // 根据仓库链接自动获取RepoID
+  const fetchRepoId = async (repoUrl) => {
+    if (!repoUrl || !repoUrl.trim()) {
+      return
+    }
+
+    // 验证仓库链接格式
+    const httpsPattern = /^https?:\/\/.+\.git$/
+    const sshPattern = /^git@.+:.+\.git$/
+    
+    if (!httpsPattern.test(repoUrl) && !sshPattern.test(repoUrl)) {
+      return
+    }
+
+    try {
+      setLoadingRepoId(true)
+      const url = buildApiUrl(API_ENDPOINTS.GET_REPO_ID)
+      const response = await axios.post(url, { repo_url: repoUrl })
+      
+      if (response.data.success && response.data.data?.repo_id) {
+        form.setFieldsValue({ repo_id: response.data.data.repo_id })
+      }
+    } catch (err) {
+      console.error('Error fetching repo_id:', err)
+      // 不显示错误消息，让用户手动输入
+    } finally {
+      setLoadingRepoId(false)
+    }
   }
 
   const fetchConfigs = async () => {
@@ -413,16 +454,30 @@ function ConfigManagement({ language }) {
             rules={[
               { required: true, message: '请输入仓库链接' },
               { 
-                pattern: /^https?:\/\/.+\.git$/,
-                message: '仓库链接格式不正确（需要以.git结尾）'
+                validator: (_, value) => {
+                  if (!value) {
+                    return Promise.resolve()
+                  }
+                  const httpsPattern = /^https?:\/\/.+\.git$/
+                  const sshPattern = /^git@.+:.+\.git$/
+                  if (httpsPattern.test(value) || sshPattern.test(value)) {
+                    return Promise.resolve()
+                  }
+                  return Promise.reject(new Error('仓库链接格式不正确（支持 https:// 或 git@ 格式，需要以.git结尾）'))
+                }
               }
             ]}
-            extra="例如: https://github.com/fujifei/tuna.git"
-            tooltip="仓库名称会自动从链接中提取"
+            extra="例如: https://github.com/fujifei/tuna.git 或 git@github.com:fujifei/tuna.git"
+            tooltip="仓库名称会自动从链接中提取，RepoID会自动获取"
           >
             <Input 
-              placeholder="https://github.com/fujifei/tuna.git" 
+              placeholder="https://github.com/fujifei/tuna.git 或 git@github.com:fujifei/tuna.git" 
               disabled={modalType === 'edit'}
+              onBlur={(e) => {
+                if (modalType === 'create' && e.target.value) {
+                  fetchRepoId(e.target.value)
+                }
+              }}
             />
           </Form.Item>
 
@@ -430,11 +485,12 @@ function ConfigManagement({ language }) {
             label="RepoID"
             name="repo_id"
             rules={[{ required: true, message: '请输入RepoID' }]}
-            extra="仓库唯一标识"
+            extra="仓库唯一标识（输入仓库链接后会自动获取）"
           >
             <Input 
-              placeholder="请输入RepoID" 
+              placeholder="输入仓库链接后自动获取" 
               disabled={modalType === 'edit'}
+              suffix={loadingRepoId ? <span style={{ color: '#999', fontSize: '12px' }}>获取中...</span> : null}
             />
           </Form.Item>
 
@@ -461,10 +517,10 @@ function ConfigManagement({ language }) {
           <Form.Item
             label="覆盖率排除文件后缀"
             name="exclude_files"
-            extra="多个后缀用分号分隔，支持通配符，例如: *._test.go;active_test.go"
+            extra={`多个后缀用分号分隔，支持通配符，例如: ${getExcludeFilesPlaceholder(language)}`}
           >
             <TextArea
-              placeholder="*._test.go;active_test.go"
+              placeholder={getExcludeFilesPlaceholder(language)}
               rows={3}
             />
           </Form.Item>

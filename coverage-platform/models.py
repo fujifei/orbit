@@ -17,7 +17,19 @@ logger = logging.getLogger(__name__)
 
 # 数据库配置（支持环境变量）
 import os
-DB_HOST = os.getenv('DB_HOST', 'mysql')
+import socket
+
+# 智能检测运行环境：如果在Docker容器中或能解析'mysql'主机名，使用'mysql'；否则使用'localhost'
+def get_default_db_host():
+    try:
+        # 尝试解析 'mysql' 主机名
+        socket.gethostbyname('mysql')
+        return 'mysql'  # 在Docker环境中
+    except (socket.gaierror, OSError):
+        # 无法解析 'mysql'，说明在本地环境
+        return 'localhost'
+
+DB_HOST = os.getenv('DB_HOST', get_default_db_host())
 DB_PORT = os.getenv('DB_PORT', '3306')
 DB_USER = os.getenv('DB_USER', 'coverage')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'coverage123')
@@ -164,9 +176,17 @@ class CoverageConfig(Base):
     
     def to_dict(self):
         """转换为字典，用于API响应"""
+        # repo_id 在数据库中存储为字符串，但API返回时转换为整数（GitHub仓库ID）
+        repo_id_int = None
+        try:
+            repo_id_int = int(self.repo_id) if self.repo_id else None
+        except (ValueError, TypeError):
+            # 如果无法转换为整数，保持原值（向后兼容）
+            repo_id_int = self.repo_id
+        
         return {
             'id': self.id,
-            'repo_id': self.repo_id,
+            'repo_id': repo_id_int,
             'repo_name': self.repo_name,
             'repo_url': self.repo_url,
             'repo_type': self.repo_type,

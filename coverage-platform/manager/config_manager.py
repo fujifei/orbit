@@ -7,10 +7,13 @@
 
 import logging
 import time
-from typing import Optional, Dict, List, Any
+import re
+import requests
+from typing import Optional, Dict, List, Any, Union
 
 from models import CoverageConfig, get_db_session
 from manager.diff_manager import set_base_branch_for_repo
+from manager.repo_manager import extract_project_name
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +137,7 @@ def get_repo_config_with_default(repo_id: str) -> Dict[str, Any]:
 
 def create_config(
     repo_url: str,
-    repo_id: str,
+    repo_id: Union[str, int],
     base_branch: str = 'master',
     exclude_dirs: str = '',
     exclude_files: str = '',
@@ -145,7 +148,7 @@ def create_config(
     
     参数:
         repo_url: 仓库 URL
-        repo_id: 仓库唯一标识
+        repo_id: 仓库唯一标识（整数或字符串，GitHub仓库ID）
         base_branch: 基准分支（默认 master）
         exclude_dirs: 排除的目录（分号分隔）
         exclude_files: 排除的文件（分号分隔）
@@ -160,12 +163,13 @@ def create_config(
     """
     try:
         repo_url = repo_url.strip()
-        repo_id = repo_id.strip()
+        # repo_id 可能是整数或字符串，统一转换为字符串存储
+        repo_id_str = str(repo_id).strip() if repo_id is not None else ''
         base_branch = base_branch.strip()
         exclude_dirs = exclude_dirs.strip()
         exclude_files = exclude_files.strip()
         
-        if not repo_url or not repo_id:
+        if not repo_url or not repo_id_str:
             raise ValueError('Missing repo_url or repo_id')
         
         # 验证 repo_type 值
@@ -181,7 +185,7 @@ def create_config(
         
         # 检查是否已存在
         existing = db.query(CoverageConfig).filter(
-            CoverageConfig.repo_id == repo_id
+            CoverageConfig.repo_id == repo_id_str
         ).first()
         
         if existing:
@@ -190,7 +194,7 @@ def create_config(
         # 创建配置
         now = int(time.time() * 1000)
         config = CoverageConfig(
-            repo_id=repo_id,
+            repo_id=repo_id_str,
             repo_name=repo_name,
             repo_url=repo_url,
             repo_type=repo_type,
@@ -204,7 +208,7 @@ def create_config(
         db.add(config)
         db.commit()
         
-        logger.info(f"Created config for repo_id={repo_id}, repo_name={repo_name}, repo_type={repo_type}")
+        logger.info(f"Created config for repo_id={repo_id_str}, repo_name={repo_name}, repo_type={repo_type}")
         
         return config.to_dict()
     except Exception as e:
@@ -326,4 +330,110 @@ def set_repo_config(repo_id: str, base_branch: str) -> bool:
     except Exception as e:
         logger.error(f"Error setting repo config: {e}")
         raise
+
+
+def extract_github_owner_repo(repo_url: str) -> tuple:
+    """
+    从仓库URL中提取GitHub的owner和repo名称
+    
+    参数:
+        repo_url: 仓库URL（支持 git@ 和 https:// 格式）
+    
+    返回:
+        tuple: (owner, repo) 例如: ('fujifei', 'tuna-java')
+    
+    异常:
+        ValueError: 仓库URL格式不正确或不是GitHub仓库
+    """
+    if not repo_url:
+        raise ValueError('Missing repo_url')
+    
+    repo_url = repo_url.strip()
+    
+    # 移除 .git 后缀
+    if repo_url.endswith('.git'):
+        repo_url = repo_url[:-4]
+    
+    # 处理 git@host:owner/repo 格式
+    if repo_url.startswith('git@'):
+        # git@github.com:fujifei/tuna-java -> github.com/fujifei/tuna-java
+        repo_url = repo_url.replace('git@', '', 1).replace(':', '/', 1)
+    
+    # 处理 https:// 或 http:// 格式
+    if repo_url.startswith('http://') or repo_url.startswith('https://'):
+        # https://github.com/fujifei/tuna-java -> github.com/fujifei/tuna-java
+        repo_url = re.sub(r'^https?://', '', repo_url)
+    
+    # 移除末尾的斜杠
+    repo_url = repo_url.rstrip('/')
+    
+    # 检查是否是GitHub仓库
+    if not repo_url.startswith('github.com/'):
+        raise ValueError('Only GitHub repositories are supported')
+    
+    # 提取 owner 和 repo
+    # github.com/fujifei/tuna-java -> ('fujifei', 'tuna-java')
+    parts = repo_url.replace('github.com/', '').split('/')
+    if len(parts) < 2:
+        raise ValueError('Invalid GitHub repository URL format')
+    
+    owner = parts[0]
+    repo = parts[1]
+    
+    return (owner, repo)
+
+
+def get_repo_id_from_url(repo_url: str) -> int:
+    """
+    根据仓库URL从GitHub API获取RepoID（整数）
+    
+    参数:
+        repo_url: 仓库URL（支持 git@ 和 https:// 格式，仅支持GitHub）
+    
+    返回:
+        int: RepoID（GitHub仓库的唯一整数标识）
+    
+    异常:
+        ValueError: 仓库URL格式不正确或不是GitHub仓库
+        RuntimeError: 无法从GitHub API获取仓库信息
+    """
+    if not repo_url:
+        raise ValueError('Missing repo_url')
+    
+    try:
+        # 提取 owner 和 repo
+        owner, repo = extract_github_owner_repo(repo_url)
+        
+        # 调用 GitHub API 获取仓库信息
+        api_url = f'https://api.github.com/repos/{owner}/{repo}'
+        logger.info(f"Fetching repository ID from GitHub API: {api_url}")
+        
+        response = requests.get(api_url, timeout=10)
+        
+        if response.status_code == 404:
+            raise RuntimeError(f'Repository not found: {owner}/{repo}')
+        elif response.status_code == 403:
+            # 可能是速率限制
+            raise RuntimeError('GitHub API rate limit exceeded. Please try again later.')
+        elif response.status_code != 200:
+            raise RuntimeError(f'Failed to fetch repository info from GitHub API: HTTP {response.status_code}')
+        
+        data = response.json()
+        repo_id = data.get('id')
+        
+        if not repo_id or not isinstance(repo_id, int):
+            raise RuntimeError('Invalid repository ID from GitHub API')
+        
+        logger.info(f"Successfully fetched repository ID: {repo_id} for {owner}/{repo}")
+        return repo_id
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error while fetching repository ID: {e}")
+        raise RuntimeError(f'Network error: {str(e)}')
+    except ValueError as e:
+        # 重新抛出 ValueError
+        raise
+    except Exception as e:
+        logger.error(f"Error getting repo_id from GitHub API: {e}")
+        raise RuntimeError(f'Failed to get repository ID: {str(e)}')
 

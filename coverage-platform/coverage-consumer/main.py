@@ -5,6 +5,7 @@ import json
 import logging
 import sys
 import os
+import socket
 from typing import Dict, Optional
 
 # 添加父目录到路径，以便导入共享模块
@@ -26,8 +27,18 @@ logger = logging.getLogger(__name__)
 MAX_RETRY_COUNT = 10  # 最大重试次数
 RETRY_HEADER_KEY = 'x-retry-count'  # 重试次数header键
 
+# 智能检测运行环境：如果在Docker容器中或能解析'rabbitmq'主机名，使用'rabbitmq'；否则使用'localhost'
+def get_default_rabbitmq_host():
+    try:
+        # 尝试解析 'rabbitmq' 主机名
+        socket.gethostbyname('rabbitmq')
+        return 'rabbitmq'  # 在Docker环境中
+    except (socket.gaierror, OSError):
+        # 无法解析 'rabbitmq'，说明在本地环境
+        return 'localhost'
+
 # RabbitMQ配置（支持环境变量）
-RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'rabbitmq')
+RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', get_default_rabbitmq_host())
 RABBITMQ_PORT = os.getenv('RABBITMQ_PORT', '5672')
 RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'coverage')
 RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASSWORD', 'coverage123')
@@ -56,13 +67,15 @@ def get_retry_count(headers: Optional[Dict]) -> int:
 def connect_rabbitmq() -> pika.BlockingConnection:
     """连接RabbitMQ"""
     try:
+        logger.info(f"Connecting to RabbitMQ at {RABBITMQ_HOST}:{RABBITMQ_PORT}")
         parameters = pika.URLParameters(RABBITMQ_URL)
         # 配置心跳超时为300秒（5分钟），避免长时间无消息时连接断开
         parameters.heartbeat = 300
         connection = pika.BlockingConnection(parameters)
+        logger.info(f"Successfully connected to RabbitMQ at {RABBITMQ_HOST}:{RABBITMQ_PORT}")
         return connection
     except Exception as e:
-        logger.error(f"Failed to connect to RabbitMQ: {e}")
+        logger.error(f"Failed to connect to RabbitMQ at {RABBITMQ_HOST}:{RABBITMQ_PORT}: {e}")
         raise
 
 

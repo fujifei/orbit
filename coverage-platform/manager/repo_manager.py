@@ -23,6 +23,183 @@ logger = logging.getLogger(__name__)
 REPOS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'repos')
 
 
+def get_git_env():
+    """
+    获取执行 Git 命令时的环境变量
+    配置 SSH 以处理主机密钥验证问题（适用于容器环境）
+    
+    Returns:
+        dict: 包含环境变量的字典
+    """
+    env = os.environ.copy()
+    # 设置 GIT_SSH_COMMAND 以自动接受新的主机密钥（适用于容器环境）
+    # 如果 known_hosts 中已有密钥，会正常验证；如果没有，会自动接受
+    # 这对于容器环境是安全的，因为容器是临时的
+    git_ssh_command = "ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts"
+    env['GIT_SSH_COMMAND'] = git_ssh_command
+    return env
+
+
+def get_authenticated_url(repo_url: str) -> str:
+    """
+    将仓库 URL 转换为带认证信息的 URL（如果配置了 token）
+    
+    支持的环境变量：
+    - GITHUB_TOKEN: GitHub 个人访问令牌
+    - GITLAB_TOKEN: GitLab 个人访问令牌
+    - BITBUCKET_TOKEN: Bitbucket 应用密码
+    - GITEE_TOKEN: Gitee 个人访问令牌
+    - GIT_TOKEN: 通用 Git token（用于所有 HTTPS URL）
+    
+    对于 HTTPS URL，如果有对应的 token，会将其嵌入到 URL 中：
+    - https://github.com/owner/repo.git -> https://token@github.com/owner/repo.git
+    
+    对于 SSH URL，会转换为 HTTPS URL 并使用 token 认证（如果有 token）：
+    - git@github.com:owner/repo.git -> https://token@github.com/owner/repo.git
+    
+    Args:
+        repo_url: 原始仓库 URL
+    
+    Returns:
+        str: 带认证信息的 URL（如果有 token），否则返回原 URL 或转换后的 HTTPS URL
+    """
+    logger.info(f"get_authenticated_url called with: {repo_url}")
+    if not repo_url:
+        return repo_url
+    
+    repo_url = repo_url.strip()
+    
+    # 如果 URL 已经包含认证信息，直接返回
+    if '@' in repo_url and (repo_url.startswith('http://') or repo_url.startswith('https://')):
+        # 检查是否已经有 token（格式：https://token@host/...）
+        if re.match(r'^https?://[^@]+@', repo_url):
+            return repo_url
+    
+    # 处理 SSH URL：git@host:owner/repo.git -> https://host/owner/repo.git
+    https_url = None
+    if repo_url.startswith('git@'):
+        # git@github.com:owner/repo.git -> https://github.com/owner/repo.git
+        https_url = repo_url.replace('git@', 'https://', 1).replace(':', '/', 1)
+        logger.info(f"Converting SSH URL to HTTPS: {repo_url} -> {https_url}")
+    elif repo_url.startswith('http://') or repo_url.startswith('https://'):
+        https_url = repo_url
+    else:
+        # 未知格式，返回原 URL
+        logger.warning(f"Unknown URL format: {repo_url}")
+        return repo_url
+    
+    # 提取域名以确定使用哪个 token
+    token = None
+    if 'github.com' in https_url:
+        token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GIT_TOKEN')
+        logger.debug(f"Checking for GitHub token: GITHUB_TOKEN={'***' if os.environ.get('GITHUB_TOKEN') else 'not set'}, GIT_TOKEN={'***' if os.environ.get('GIT_TOKEN') else 'not set'}")
+    elif 'gitlab.com' in https_url or 'gitlab' in https_url:
+        token = os.environ.get('GITLAB_TOKEN') or os.environ.get('GIT_TOKEN')
+    elif 'bitbucket.org' in https_url:
+        token = os.environ.get('BITBUCKET_TOKEN') or os.environ.get('GIT_TOKEN')
+    elif 'gitee.com' in https_url:
+        token = os.environ.get('GITEE_TOKEN') or os.environ.get('GIT_TOKEN')
+    else:
+        # 对于其他域名，尝试使用通用 token
+        token = os.environ.get('GIT_TOKEN')
+    
+    # 如果有 token，将其嵌入到 URL 中
+    if token:
+        # 移除可能的用户名部分（如果有）
+        # https://user@github.com/owner/repo.git -> https://github.com/owner/repo.git
+        url_without_auth = re.sub(r'^https?://[^@]+@', r'https://', https_url)
+        # 添加 token
+        authenticated_url = url_without_auth.replace('https://', f'https://{token}@', 1)
+        logger.info(f"Using token authentication for repository (converted from SSH if applicable)")
+        logger.debug(f"Authenticated URL: {authenticated_url[:50]}...")
+        return authenticated_url
+    
+    # 如果没有 token，返回转换后的 HTTPS URL（如果是从 SSH 转换的）
+    if https_url != repo_url:
+        logger.warning(f"Converted SSH URL to HTTPS but no token available: {repo_url} -> {https_url}")
+        logger.warning(f"This may cause authentication issues. Please configure GITHUB_TOKEN or GIT_TOKEN environment variable.")
+        return https_url
+    
+    return repo_url
+
+
+def ensure_remote_url(repo_url: str) -> bool:
+    """
+    确保 bare 仓库的 remote URL 使用带认证信息的 URL（如果有 token）
+    
+    Args:
+        repo_url: 原始仓库 URL
+    
+    Returns:
+        bool: 是否成功
+    """
+    logger.info(f"ensure_remote_url called for: {repo_url}")
+    bare_repo_path = get_bare_repo_path(repo_url)
+    
+    if not os.path.exists(bare_repo_path):
+        logger.info(f"Bare repository does not exist yet: {bare_repo_path}")
+        return True  # 仓库不存在，会在 clone 时使用正确的 URL
+    
+    try:
+        # 获取带认证信息的 URL
+        logger.info(f"Getting authenticated URL for: {repo_url}")
+        authenticated_url = get_authenticated_url(repo_url)
+        logger.info(f"Authenticated URL result: {authenticated_url[:80]}...")
+        
+        # 获取当前的 remote URL
+        result = subprocess.run(
+            ['git', 'remote', 'get-url', 'origin'],
+            cwd=bare_repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            logger.warning(f"Failed to get current remote URL: {result.stderr}")
+            # 如果获取失败，尝试设置 URL
+            authenticated_url = get_authenticated_url(repo_url)
+            logger.info(f"Setting remote URL to: {authenticated_url[:50]}...")
+            result = subprocess.run(
+                ['git', 'remote', 'set-url', 'origin', authenticated_url],
+                cwd=bare_repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                logger.error(f"Failed to set remote URL: {result.stderr}")
+                return False
+            return True
+        
+        current_url = result.stdout.strip()
+        
+        # 如果 URL 不同，更新它
+        # 注意：即使都是指向同一个仓库，SSH URL 和 HTTPS URL 也是不同的
+        if current_url != authenticated_url:
+            logger.info(f"Updating remote URL from SSH/old format to HTTPS with token")
+            logger.debug(f"Current URL: {current_url}")
+            logger.debug(f"New URL: {authenticated_url[:50]}...")
+            result = subprocess.run(
+                ['git', 'remote', 'set-url', 'origin', authenticated_url],
+                cwd=bare_repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                logger.error(f"Failed to update remote URL: {result.stderr}")
+                return False
+            logger.info(f"Successfully updated remote URL")
+        else:
+            logger.debug(f"Remote URL is already up to date")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error ensuring remote URL: {e}")
+        return False  # 返回 False，让调用者知道有问题
+
+
 def extract_project_name(repo_url: str) -> str:
     """
     从git仓库URL中提取项目名称
@@ -193,6 +370,9 @@ def ensure_bare_repo(repo_url: str) -> bool:
     # 检查 bare 仓库是否已存在
     if os.path.exists(bare_repo_path) and os.path.exists(os.path.join(bare_repo_path, 'HEAD')):
         logger.info(f"Bare repository already exists: {bare_repo_path}")
+        # 确保 remote URL 使用带认证信息的 URL（如果有 token）
+        if not ensure_remote_url(repo_url):
+            logger.warning(f"Failed to update remote URL, but continuing with existing repository")
         return True
     
     try:
@@ -200,13 +380,16 @@ def ensure_bare_repo(repo_url: str) -> bool:
         os.makedirs(os.path.dirname(bare_repo_path), exist_ok=True)
         
         # 克隆 bare 仓库
+        # 使用带认证信息的 URL（如果有 token）
+        authenticated_url = get_authenticated_url(repo_url)
         logger.info(f"Cloning bare repository: {repo_url} to {bare_repo_path}")
-        cmd = ['git', 'clone', '--bare', repo_url, bare_repo_path]
+        cmd = ['git', 'clone', '--bare', authenticated_url, bare_repo_path]
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=600  # 10分钟超时
+            timeout=600,  # 10分钟超时
+            env=get_git_env()
         )
         
         if result.returncode != 0:
@@ -237,6 +420,28 @@ def fetch_commit(repo_url: str, commit: str) -> bool:
     bare_repo_path = get_bare_repo_path(repo_url)
     
     try:
+        # 确保 remote URL 使用带认证信息的 URL
+        if not ensure_remote_url(repo_url):
+            logger.error(f"Failed to ensure remote URL is using authenticated format")
+            return False
+        
+        # 验证 remote URL 确实已更新（用于调试）
+        result = subprocess.run(
+            ['git', 'remote', 'get-url', 'origin'],
+            cwd=bare_repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            current_remote_url = result.stdout.strip()
+            logger.debug(f"Current remote URL: {current_remote_url[:50]}...")
+            # 如果仍然是 SSH URL，说明更新失败
+            if current_remote_url.startswith('git@'):
+                logger.error(f"Remote URL is still using SSH format: {current_remote_url}")
+                logger.error(f"This indicates the URL update failed. Please check token configuration.")
+                return False
+        
         # 检查 commit 是否已存在
         result = subprocess.run(
             ['git', 'cat-file', '-e', commit],
@@ -257,7 +462,8 @@ def fetch_commit(repo_url: str, commit: str) -> bool:
             cwd=bare_repo_path,
             capture_output=True,
             text=True,
-            timeout=300  # 5分钟超时
+            timeout=300,  # 5分钟超时
+            env=get_git_env()
         )
         
         if result.returncode != 0:
@@ -268,7 +474,8 @@ def fetch_commit(repo_url: str, commit: str) -> bool:
                 cwd=bare_repo_path,
                 capture_output=True,
                 text=True,
-                timeout=600  # 10分钟超时
+                timeout=600,  # 10分钟超时
+                env=get_git_env()
             )
             
             if result.returncode != 0:

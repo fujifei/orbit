@@ -314,7 +314,8 @@ def process_coverage_report(msg: CoverageReportMessage) -> None:
             raise ValueError(err_msg)
         
         # 存储文件和数据
-        now = int(time.time() * 1000)  # 毫秒时间戳
+        # 在开始处理文件前获取时间戳，用于ranges的created_at
+        ranges_timestamp = int(time.time() * 1000)  # 毫秒时间戳
         
         # 获取当前repo_id+branch下的所有文件，用于后续清理不再存在的文件
         existing_files = db.query(CoverageFile).filter(
@@ -331,7 +332,7 @@ def process_coverage_report(msg: CoverageReportMessage) -> None:
             if file_path in existing_file_paths:
                 # 更新现有文件
                 file = existing_file_paths[file_path]
-                file.updated_at = now
+                file.updated_at = ranges_timestamp
                 # created_at保持不变
                 logger.info(f"Updating existing file: {file_path}")
             else:
@@ -340,8 +341,8 @@ def process_coverage_report(msg: CoverageReportMessage) -> None:
                     repo_id=report.repo_id,
                     branch=report.branch,
                     file_path=file_path,
-                    created_at=now,
-                    updated_at=now
+                    created_at=ranges_timestamp,
+                    updated_at=ranges_timestamp
                 )
                 db.add(file)
                 logger.info(f"Creating new file: {file_path}")
@@ -363,7 +364,7 @@ def process_coverage_report(msg: CoverageReportMessage) -> None:
                     end_col=r['end_col'],
                     statements=r['statements'],
                     hit=r['hit'],
-                    created_at=now
+                    created_at=ranges_timestamp
                 )
                 db.add(range_obj)
         
@@ -439,9 +440,10 @@ def process_coverage_report(msg: CoverageReportMessage) -> None:
                 # base_commit 代码拉取失败不影响主流程
         
         # 更新报告状态为完成
-        update_now = int(time.time() * 1000)
+        # 使用ranges的时间戳，确保coverage_reports.updated_at和coverage_ranges.created_at一致
+        # 这样即使中间有耗时操作（如拉取代码），时间戳也能保持一致
         report.status = 'completed'
-        report.updated_at = update_now
+        report.updated_at = ranges_timestamp
         
         # 提交事务
         db.commit()
